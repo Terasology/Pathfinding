@@ -3,26 +3,28 @@
 package org.terasology.pathfinding.componentSystem;
 
 import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.SettableFuture;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.terasology.engine.core.GameScheduler;
 import org.terasology.engine.entitySystem.entity.EntityRef;
 import org.terasology.engine.entitySystem.systems.BaseComponentSystem;
 import org.terasology.engine.entitySystem.systems.RegisterMode;
 import org.terasology.engine.entitySystem.systems.RegisterSystem;
+import org.terasology.engine.registry.CoreRegistry;
+import org.terasology.engine.registry.In;
+import org.terasology.engine.registry.Share;
 import org.terasology.navgraph.NavGraphSystem;
 import org.terasology.navgraph.WalkableBlock;
 import org.terasology.pathfinding.model.LineOfSight;
 import org.terasology.pathfinding.model.LineOfSight2d;
 import org.terasology.pathfinding.model.Path;
 import org.terasology.pathfinding.model.Pathfinder;
-import org.terasology.engine.registry.CoreRegistry;
-import org.terasology.engine.registry.In;
-import org.terasology.engine.registry.Share;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This systems helps finding a paths through the game world.
@@ -49,7 +51,7 @@ public class PathfinderSystem extends BaseComponentSystem {
     private LineOfSight lineOfSight;
     private Pathfinder pathfinder;
     private int nextId;
-    private int pathsSearched;
+    private AtomicInteger pathsSearched = new AtomicInteger();
 
     public PathfinderSystem() {
         CoreRegistry.put(LineOfSight.class, new LineOfSight2d());
@@ -65,11 +67,39 @@ public class PathfinderSystem extends BaseComponentSystem {
     public void shutdown() {
     }
 
-    public SettableFuture<List<Path>> requestPath(EntityRef requestor, Vector3i target, List<Vector3i> start) {
-        SettableFuture<List<Path>> future = SettableFuture.create();
-        FindPathTask task = new FindPathTask(start, target, requestor, future);
-        navGraphSystem.offer(task);
-        return future;
+    public static class  RequestPath {
+        EntityRef requestor;
+        Vector3i target;
+        List<Vector3i> start;
+
+        public RequestPath(EntityRef requestor, Vector3i target, List<Vector3i> start) {
+            this.requestor = requestor;
+            this.target = target;
+            this.start = start;
+        }
+    }
+
+    public Mono<List<Path>> requestPath(EntityRef requestor, Vector3i target, List<Vector3i> start) {
+        return requestPath(new RequestPath(requestor, target, start));
+    }
+
+    public Mono<List<Path>> requestPath(RequestPath requestPath) {
+        return Mono.fromCallable(() -> requestPath)
+            .publishOn(GameScheduler.parallel())
+            .<List<Path>>mapNotNull(requestPath1 -> {
+                pathsSearched.incrementAndGet();
+                List<WalkableBlock> startBlocks = Lists.newArrayList();
+                for (Vector3i pos : requestPath1.start) {
+                    if (pos != null) {
+                        startBlocks.add(navGraphSystem.getBlock(pos));
+                    }
+                }
+                WalkableBlock targetBlock = navGraphSystem.getBlock(requestPath1.target);
+                if (targetBlock != null && startBlocks.size() > 0) {
+                    return pathfinder.findPath(targetBlock, startBlocks);
+                }
+                return null;
+            });
     }
 
     public Path findPath(final WalkableBlock target, final WalkableBlock start) {
@@ -93,73 +123,10 @@ public class PathfinderSystem extends BaseComponentSystem {
     }
 
     public int getPathsSearched() {
-        return pathsSearched;
+        return pathsSearched.get();
     }
 
     protected Pathfinder createPathfinder() {
         return new Pathfinder(navGraphSystem, lineOfSight);
-    }
-
-    /**
-     * Task to find a path.
-     * <p/>
-     * Note: this class has a natural ordering that is inconsistent with equals.
-     */
-    private final class FindPathTask implements NavGraphSystem.NavGraphTask {
-        public EntityRef entity;
-        public List<Path> paths;
-        public List<Vector3i> start;
-        public Vector3i target;
-        public int pathId;
-        public SettableFuture<List<Path>> future;
-
-        private FindPathTask(List<Vector3i> start, Vector3i target, EntityRef entity, SettableFuture<List<Path>> future) {
-            this.start = start;
-            this.target = target;
-            this.entity = entity;
-            this.pathId = nextId;
-            this.future = future;
-            nextId++;
-        }
-
-        @Override
-        public String getName() {
-            return "Pathfinder:FindPath";
-        }
-
-        @Override
-        public void run() {
-            pathsSearched++;
-            List<WalkableBlock> startBlocks = Lists.newArrayList();
-            for (Vector3i pos : start) {
-                if (pos != null) {
-                    startBlocks.add(navGraphSystem.getBlock(pos));
-                }
-            }
-            WalkableBlock targetBlock = navGraphSystem.getBlock(this.target);
-            paths = null;
-            if (targetBlock != null && startBlocks.size() > 0) {
-                paths = pathfinder.findPath(targetBlock, startBlocks);
-            }
-            if (future != null) {
-                future.set(paths);
-            }
-        }
-
-        @Override
-        public int getPriority() {
-            return 1 + pathId;
-        }
-
-        @Override
-        public boolean isTerminateSignal() {
-            return false;
-        }
-
-        @Override
-        public int compareTo(NavGraphSystem.NavGraphTask o) {
-            return Integer.compare(this.getPriority(), o.getPriority());
-        }
-
     }
 }

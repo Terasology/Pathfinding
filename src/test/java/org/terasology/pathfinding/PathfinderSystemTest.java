@@ -4,7 +4,6 @@ package org.terasology.pathfinding;
 
 import com.badlogic.gdx.physics.bullet.Bullet;
 import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.ListenableFuture;
 import org.joml.Vector3i;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,8 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.terasology.core.world.generator.AbstractBaseWorldGenerator;
 import org.terasology.engine.WorldProvidingHeadlessEnvironment;
 import org.terasology.engine.core.ComponentSystemManager;
-import org.terasology.engine.core.SimpleUri;
 import org.terasology.engine.core.PathManager;
+import org.terasology.engine.core.SimpleUri;
 import org.terasology.engine.entitySystem.entity.EntityManager;
 import org.terasology.engine.entitySystem.entity.EntityRef;
 import org.terasology.engine.entitySystem.entity.internal.PojoEntityManager;
@@ -23,8 +22,13 @@ import org.terasology.engine.registry.CoreRegistry;
 import org.terasology.engine.world.chunks.event.OnChunkLoaded;
 import org.terasology.navgraph.NavGraphSystem;
 import org.terasology.pathfinding.componentSystem.PathfinderSystem;
+import org.terasology.pathfinding.model.Path;
 import org.terasology.pathfinding.model.Pathfinder;
 
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -53,16 +57,16 @@ public class PathfinderSystemTest {
         OnChunkLoaded chunkLoadedDummyEvent = new OnChunkLoaded(new Vector3i());
 
         navGraphSystem.chunkReady(chunkLoadedDummyEvent, entityRef);
-        ListenableFuture f1 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i()));
-        ListenableFuture f2 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i()));
-        ListenableFuture f3 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i()));
+        Optional<List<Path>> f1 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i())).blockOptional();
+        Optional<List<Path>> f2 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i())).blockOptional();
+        Optional<List<Path>> f3 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i())).blockOptional();
         while (pathfinderSystem.getPathsSearched() != 3) {
             Thread.sleep(10);
             eventSystem.process();
         }
-        assertTrue(f1.isDone());
-        assertTrue(f2.isDone());
-        assertTrue(f3.isDone());
+        assertTrue(f1.isPresent());
+        assertFalse(f2.isPresent());
+        assertFalse(f3.isPresent());
     }
 
     @Test
@@ -72,17 +76,17 @@ public class PathfinderSystemTest {
 
         OnChunkLoaded chunkLoadedDummyEvent = new OnChunkLoaded(new Vector3i());
 
-        ListenableFuture f1 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i()));
-        ListenableFuture f2 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i()));
-        ListenableFuture f3 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i()));
+        Optional<List<Path>> f1 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i())).blockOptional();
+        Optional<List<Path>> f2 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i())).blockOptional();
+        Optional<List<Path>> f3 = pathfinderSystem.requestPath(entityRef, new Vector3i(), Lists.newArrayList(new Vector3i())).blockOptional();
         navGraphSystem.chunkReady(chunkLoadedDummyEvent, entityRef);
         while (pathfinderSystem.getPathsSearched() != 3) {
             Thread.sleep(50);
             eventSystem.process();
         }
-        assertTrue(f1.isDone());
-        assertTrue(f2.isDone());
-        assertTrue(f3.isDone());
+        assertTrue(f1.isPresent());
+        assertTrue(f2.isPresent());
+        assertTrue(f3.isPresent());
     }
 
     @AfterEach
